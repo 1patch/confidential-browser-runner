@@ -97,7 +97,10 @@ recovery across fresh filesystems. A separate operator proof also tested actual
 S3/IAM isolation, conditional writes, lost acknowledgments and browser recovery
 using two synthetic owners' private buckets and temporary credentials. That
 provisioning script is outside this generic distribution. Production credential
-renewal, confidential stop/wake and 100 concurrent browsers still require live
-acceptance. The prior public release passed actual hardware verification,
-private bootstrap, real browser navigation/screenshots and capability denials
-on Tinfoil; its direct cloud-stop test did not save a reusable checkpoint.
+renewal and 100 concurrent browsers still require live acceptance. The current
+public release passed actual hardware verification, private bootstrap, browser
+navigation/screenshots and capability denials on two Tinfoil VMs. Both completed
+explicit checkpoints, restarted with fresh attested nonces, restored private
+session cookies and returned completed results without replaying browser actions.
+An external Pi agent also received screenshot pixels. A prior direct cloud-stop
+test did not save a reusable checkpoint; that synthetic profile remains quarantined.
