@@ -53,13 +53,30 @@ func SignObjectBootstrap(key ed25519.PrivateKey, nonce string, raw []byte, expir
 }
 
 func verifyObjectBootGrant(key ed25519.PublicKey, token, nonce string, now time.Time) (objectBootGrant, error) {
+	return verifyObjectGrant(key, token, nonce, now, "browser-bootstrap/v1.")
+}
+
+// SignObjectDrain belongs to the bootstrap operator, never the agent. It binds
+// checkpoint authority to the exact process and bootstrap already delivered.
+func SignObjectDrain(key ed25519.PrivateKey, status ObjectBootStatus, expires time.Time) (string, error) {
+	nonce, err := base64.RawURLEncoding.DecodeString(status.Nonce)
+	if len(key) != ed25519.PrivateKeySize || status.Version != 1 || err != nil || len(nonce) != 32 || base64.RawURLEncoding.EncodeToString(nonce) != status.Nonce || !hexIdentifier(status.Digest, 32) {
+		return "", ErrInvalid
+	}
+	body, _ := json.Marshal(objectBootGrant{1, status.Nonce, status.Digest, expires.Unix()})
+	encoded := base64.RawURLEncoding.EncodeToString(body)
+	sig := ed25519.Sign(key, []byte("browser-drain/v1."+encoded))
+	return encoded + "." + base64.RawURLEncoding.EncodeToString(sig), nil
+}
+
+func verifyObjectGrant(key ed25519.PublicKey, token, nonce string, now time.Time, purpose string) (objectBootGrant, error) {
 	var grant objectBootGrant
 	parts := strings.Split(token, ".")
 	if len(key) != ed25519.PublicKeySize || len(token) > 2048 || len(parts) != 2 {
 		return grant, ErrDenied
 	}
 	sig, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil || !ed25519.Verify(key, []byte("browser-bootstrap/v1."+parts[0]), sig) {
+	if err != nil || !ed25519.Verify(key, []byte(purpose+parts[0]), sig) {
 		return grant, ErrDenied
 	}
 	body, err := base64.RawURLEncoding.DecodeString(parts[0])
@@ -83,18 +100,21 @@ func verifyObjectBootGrant(key ed25519.PublicKey, token, nonce string, now time.
 // measured configuration, never a mutable provider variable. Failed starts stay
 // quarantined: no new nonce, reset route, owner replacement or implicit retry.
 type ObjectBootGate struct {
-	ctx       context.Context
-	issuer    ed25519.PublicKey
-	mu        sync.Mutex
-	closeMu   sync.Mutex
-	status    ObjectBootStatus
-	worker    *Worker
-	lifetime  context.Context
-	cancel    context.CancelFunc
-	done      chan struct{}
-	reading   chan struct{}
-	create    func(context.Context, ObjectBootstrap) (*Worker, error)
-	bootLimit time.Duration
+	ctx           context.Context
+	issuer        ed25519.PublicKey
+	mu            sync.Mutex
+	closeMu       sync.Mutex
+	status        ObjectBootStatus
+	worker        *Worker
+	lifetime      context.Context
+	cancel        context.CancelFunc
+	done          chan struct{}
+	reading       chan struct{}
+	create        func(context.Context, ObjectBootstrap) (*Worker, error)
+	bootLimit     time.Duration
+	drainClaimed  bool
+	closeFinished bool
+	closeErr      error
 }
 
 func NewObjectBootGate(ctx context.Context, issuer ed25519.PublicKey, root, executable string) (*ObjectBootGate, error) {
@@ -126,6 +146,10 @@ func (g *ObjectBootGate) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	status, worker := g.status, g.worker
 	g.mu.Unlock()
+	if r.URL.Path == "/v1/drain" {
+		g.drain(out, r, status)
+		return
+	}
 	if r.URL.Path != "/v1/bootstrap" {
 		if status.State != "ready" || worker == nil {
 			http.Error(out, `{"error":"not ready"}`, http.StatusServiceUnavailable)
@@ -187,6 +211,45 @@ func (g *ObjectBootGate) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(out).Encode(status)
 }
 
+// Claim before starting asynchronous shutdown. A lost acknowledgment is resolved
+// only through GET /v1/bootstrap; no second request can start another checkpoint.
+func (g *ObjectBootGate) drain(out http.ResponseWriter, r *http.Request, status ObjectBootStatus) {
+	deny := func() { http.Error(out, `{"error":"denied"}`, http.StatusForbidden) }
+	if r.Method != http.MethodPost || !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+		deny()
+		return
+	}
+	grant, err := verifyObjectGrant(g.issuer, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), status.Nonce, time.Now(), "browser-drain/v1.")
+	if err != nil || grant.Digest != status.Digest {
+		deny()
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(out, r.Body, 1))
+	if err != nil || len(body) != 0 || r.Context().Err() != nil {
+		deny()
+		return
+	}
+	g.mu.Lock()
+	if g.status.State != "ready" || g.drainClaimed || g.ctx.Err() != nil || grant.Expires <= time.Now().Unix() {
+		g.mu.Unlock()
+		http.Error(out, `{"error":"drain unavailable or claimed"}`, http.StatusConflict)
+		return
+	}
+	g.drainClaimed = true
+	g.status.State = "stopping"
+	status = g.status
+	g.mu.Unlock()
+	go func() {
+		// Up to 90 seconds for an already admitted grant, then the existing
+		// 90-second checkpoint budget. New requests are already denied.
+		ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+		defer cancel()
+		_ = g.Close(ctx)
+	}()
+	out.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(out).Encode(status)
+}
+
 func (g *ObjectBootGate) initialize(c ObjectBootstrap) {
 	defer close(g.done)
 	stop := context.AfterFunc(g.ctx, g.cancel)
@@ -221,6 +284,9 @@ func (g *ObjectBootGate) initialize(c ObjectBootstrap) {
 func (g *ObjectBootGate) Close(ctx context.Context) error {
 	g.closeMu.Lock()
 	defer g.closeMu.Unlock()
+	if g.closeFinished {
+		return g.closeErr
+	}
 	g.mu.Lock()
 	previous := g.status.State
 	g.status.State = "stopping"
@@ -228,7 +294,7 @@ func (g *ObjectBootGate) Close(ctx context.Context) error {
 	if previous == "waiting" {
 		close(g.done)
 	}
-	if previous != "ready" {
+	if previous != "ready" && !(previous == "stopping" && g.drainClaimed) {
 		g.cancel()
 	}
 	g.mu.Unlock()
@@ -236,6 +302,10 @@ func (g *ObjectBootGate) Close(ctx context.Context) error {
 	select {
 	case <-g.done:
 	case <-ctx.Done():
+		g.closeFinished, g.closeErr = true, ErrUncertain
+		g.mu.Lock()
+		g.status.State, g.status.Failure = "failed", "profile-checkpoint"
+		g.mu.Unlock()
 		return ErrUncertain
 	}
 	g.mu.Lock()
@@ -246,8 +316,13 @@ func (g *ObjectBootGate) Close(ctx context.Context) error {
 		err = worker.Close(ctx)
 	}
 	g.mu.Lock()
-	g.status.State = "stopped"
+	if err == nil {
+		g.status.State = "stopped"
+	} else {
+		g.status.State, g.status.Failure = "failed", "profile-checkpoint"
+	}
 	g.mu.Unlock()
+	g.closeFinished, g.closeErr = true, err
 	return err
 }
 

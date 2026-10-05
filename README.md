@@ -69,6 +69,16 @@ resubmit automatically. This service supplies the receiving boundary; the
 attestation-verifying sender remains outside the public image. Profile
 provisioning and production S3 credential renewal remain external requirements.
 
+Before cloud power-off, the same operator signs a distinct `browser-drain/v1.`
+grant binding the current nonce and bootstrap digest, and sends an empty
+`POST /v1/drain`. Execution and credential keys cannot drain a worker. One claim
+rejects new work, closes Chromium and publishes its encrypted checkpoint while
+the VM still has network access. Retain a durable drain intent before sending;
+resolve lost replies through the existing read-only status endpoint. A successful
+drain reports `stopped`; a checkpoint failure reports `failed` and stays claimed.
+Confirm the authenticated storage head is closed before invoking cloud stop.
+Do not rely on a cloud stop request to deliver a graceful process shutdown.
+
 The object backend uploads only owner-bound authenticated ciphertext and uses
 conditional S3 writes to reserve actions and acquire a profile exclusively.
 After a clean browser shutdown, it saves a bounded profile archive and private
@@ -87,5 +97,7 @@ recovery across fresh filesystems. A separate operator proof also tested actual
 S3/IAM isolation, conditional writes, lost acknowledgments and browser recovery
 using two synthetic owners' private buckets and temporary credentials. That
 provisioning script is outside this generic distribution. Production credential
-renewal, hardware-attested bootstrap, confidential stop/wake and 100 concurrent browsers
-still require live acceptance.
+renewal, confidential stop/wake and 100 concurrent browsers still require live
+acceptance. The prior public release passed actual hardware verification,
+private bootstrap, real browser navigation/screenshots and capability denials
+on Tinfoil; its direct cloud-stop test did not save a reusable checkpoint.

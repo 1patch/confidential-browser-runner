@@ -40,6 +40,15 @@ func (d *bootDriver) Close(ctx context.Context) error {
 	return nil
 }
 
+func (d *bootDriver) exportSession(ctx context.Context) ([]byte, error) {
+	if ctx.Err() != nil || d.lifetime.Err() != nil {
+		return nil, ErrUncertain
+	}
+	return nil, nil
+}
+
+func (d *bootDriver) restoreSession(context.Context, []byte) error { return nil }
+
 func newBootFixture(t *testing.T, ctx context.Context) *bootFixture {
 	t.Helper()
 	pub, key, _ := ed25519.GenerateKey(rand.Reader)
@@ -103,6 +112,130 @@ func awaitBoot(t *testing.T, g *ObjectBootGate) {
 	case <-g.done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("initialization did not finish")
+	}
+}
+
+func drainPost(g *ObjectBootGate, token string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(http.MethodPost, "/v1/drain", nil)
+	r.Header.Set("Authorization", "Bearer "+token)
+	out := httptest.NewRecorder()
+	g.ServeHTTP(out, r)
+	return out
+}
+
+func readyBootFixture(t *testing.T) *bootFixture {
+	f := newBootFixture(t, context.Background())
+	if bootPost(f.gate, context.Background(), bootToken(t, f), f.raw).Code != 202 {
+		t.Fatal("boot denied")
+	}
+	awaitBoot(t, f.gate)
+	if bootStatus(t, f.gate).State != "ready" {
+		t.Fatal("not ready")
+	}
+	return f
+}
+
+func TestObjectDrainRequiresDistinctAuthorityPurposeAndExactBoot(t *testing.T) {
+	f := readyBootFixture(t)
+	for _, mode := range []string{"unsigned", "execute-key", "bootstrap-token", "other-boot", "other-body", "expired", "future"} {
+		status, key, expiry := bootStatus(t, f.gate), f.key, time.Now().Add(time.Minute)
+		switch mode {
+		case "execute-key":
+			key = f.exec
+		case "other-boot":
+			status.Nonce = strings.Repeat("A", 43)
+		case "other-body":
+			status.Digest = strings.Repeat("b", 64)
+		case "expired":
+			expiry = time.Now().Add(-time.Minute)
+		case "future":
+			expiry = time.Now().Add(3 * time.Minute)
+		}
+		token, err := SignObjectDrain(key, status, expiry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if mode == "unsigned" {
+			token = ""
+		}
+		if mode == "bootstrap-token" {
+			token = bootToken(t, f)
+		}
+		if drainPost(f.gate, token).Code != 403 || bootStatus(t, f.gate).State != "ready" {
+			t.Fatal("unauthorized drain", mode)
+		}
+	}
+	token, _ := SignObjectDrain(f.key, bootStatus(t, f.gate), time.Now().Add(time.Minute))
+	if bootPost(f.gate, context.Background(), token, f.raw).Code != 403 {
+		t.Fatal("drain authority accepted as bootstrap")
+	}
+}
+
+func TestObjectDrainClosesOnceAndRejectsNewWorkWhileCheckpointing(t *testing.T) {
+	f := readyBootFixture(t)
+	entered, finish := make(chan struct{}), make(chan struct{})
+	var checkpoints atomic.Int32
+	f.gate.worker.checkpoint = func(ctx context.Context, _ []byte) error {
+		checkpoints.Add(1)
+		if !f.driver.clean.Load() || f.driver.lifetime.Err() != nil {
+			return ErrUncertain
+		}
+		close(entered)
+		select {
+		case <-finish:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	token, _ := SignObjectDrain(f.key, bootStatus(t, f.gate), time.Now().Add(time.Minute))
+	if drainPost(f.gate, token).Code != 202 {
+		t.Fatal("drain not accepted")
+	}
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("checkpoint never began")
+	}
+	if status := bootStatus(t, f.gate); status.State != "stopping" {
+		t.Fatal("early stop claim")
+	}
+	if drainPost(f.gate, token).Code != 409 {
+		t.Fatal("duplicate drain accepted")
+	}
+	out := httptest.NewRecorder()
+	f.gate.ServeHTTP(out, httptest.NewRequest("POST", "/v1/exec", nil))
+	if out.Code != 503 {
+		t.Fatal("new work admitted while draining")
+	}
+	close(finish)
+	if err := f.gate.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if bootStatus(t, f.gate).State != "stopped" || checkpoints.Load() != 1 || !f.driver.clean.Load() {
+		t.Fatal("checkpoint did not finish exactly once")
+	}
+	if err := f.gate.Close(context.Background()); err != nil || checkpoints.Load() != 1 {
+		t.Fatal("process shutdown repeated checkpoint")
+	}
+}
+
+func TestObjectDrainFailedCheckpointNeverReportsReusable(t *testing.T) {
+	f := readyBootFixture(t)
+	f.gate.worker.checkpoint = func(context.Context, []byte) error { return errors.New("synthetic-private-storage-detail") }
+	token, _ := SignObjectDrain(f.key, bootStatus(t, f.gate), time.Now().Add(time.Minute))
+	if drainPost(f.gate, token).Code != 202 {
+		t.Fatal("drain denied")
+	}
+	if err := f.gate.Close(context.Background()); err == nil {
+		t.Fatal("checkpoint failure hidden")
+	}
+	status := bootStatus(t, f.gate)
+	if status.State != "failed" || status.Failure != "profile-checkpoint" {
+		t.Fatal("failed checkpoint reported reusable or leaked error")
+	}
+	if drainPost(f.gate, token).Code != 409 {
+		t.Fatal("failed drain retried")
 	}
 }
 

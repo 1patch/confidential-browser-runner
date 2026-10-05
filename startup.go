@@ -48,7 +48,7 @@ func validStartupFailure(code string) bool {
 	case "initialization", "storage-identity", "profile-binding", "profile-open",
 		"credentials-read", "chromium-launch", "chromium-launch-timeout", "chromium-namespace",
 		"chromium-sandbox", "chromium-download-policy",
-		"session-restore", "credential-install":
+		"session-restore", "credential-install", "profile-checkpoint":
 		return true
 	}
 	return false
