@@ -18,6 +18,8 @@ func TestObjectBootstrapRejectsAmbiguousOrPrivateAgentConfiguration(t *testing.T
 		func(c *ObjectBootstrap) { c.Storage.Bucket = "" },
 		func(c *ObjectBootstrap) { c.Storage.Region = "http://attacker.invalid" },
 		func(c *ObjectBootstrap) { c.Storage.AccessKeyID = "" },
+		func(c *ObjectBootstrap) { c.Storage.Expires = 0 },
+		func(c *ObjectBootstrap) { c.Storage.SessionToken = "" },
 	} {
 		bad := c
 		mutate(&bad)

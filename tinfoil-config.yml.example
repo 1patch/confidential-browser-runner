@@ -30,7 +30,7 @@ containers:
 shim:
   upstream-container: browser
   upstream-port: 8080
-  paths: ["/healthz", "/v1/bootstrap", "/v1/drain", "/v1/exec", "/v1/credentials"]
+  paths: ["/healthz", "/v1/bootstrap", "/v1/drain", "/v1/storage", "/v1/exec", "/v1/credentials"]
   # Use the certificate proxy's standard attestation SAN domain.
   tls-own-san-domain: false
   tls-wildcard: false

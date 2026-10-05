@@ -19,11 +19,15 @@ import (
 // ObjectBootStatus is deliberately public. No owner, storage configuration,
 // credentials or underlying initialization error is returned by this endpoint.
 type ObjectBootStatus struct {
-	Version int    `json:"version"`
-	Nonce   string `json:"nonce"`
-	State   string `json:"state"`
-	Digest  string `json:"digest,omitempty"`
-	Failure string `json:"failure,omitempty"`
+	Version           int    `json:"version"`
+	Nonce             string `json:"nonce"`
+	State             string `json:"state"`
+	Digest            string `json:"digest,omitempty"`
+	Failure           string `json:"failure,omitempty"`
+	StorageGeneration uint64 `json:"storageGeneration,omitempty"`
+	StorageDigest     string `json:"storageDigest,omitempty"`
+	StorageState      string `json:"storageState,omitempty"`
+	StorageExpires    int64  `json:"storageExpires,omitempty"`
 }
 
 type objectBootGrant struct {
@@ -115,6 +119,8 @@ type ObjectBootGate struct {
 	drainClaimed  bool
 	closeFinished bool
 	closeErr      error
+	storageTimer  *time.Timer
+	renew         func(context.Context, *Worker, S3StoreConfig) error
 }
 
 func NewObjectBootGate(ctx context.Context, issuer ed25519.PublicKey, root, executable string) (*ObjectBootGate, error) {
@@ -132,6 +138,14 @@ func NewObjectBootGate(ctx context.Context, issuer ed25519.PublicKey, root, exec
 	g.create = func(ctx context.Context, c ObjectBootstrap) (*Worker, error) {
 		return NewObjectWorker(ctx, c, root, executable)
 	}
+	g.renew = func(ctx context.Context, w *Worker, c S3StoreConfig) error {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		if w.closed || ctx.Err() != nil || w.Store == nil {
+			return ErrDenied
+		}
+		return w.Store.renewS3Credentials(ctx, w.Owner, w.Audience, c, nil)
+	}
 	return g, nil
 }
 
@@ -148,6 +162,10 @@ func (g *ObjectBootGate) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 	g.mu.Unlock()
 	if r.URL.Path == "/v1/drain" {
 		g.drain(out, r, status)
+		return
+	}
+	if r.URL.Path == "/v1/storage" {
+		g.renewStorage(out, r, status)
 		return
 	}
 	if r.URL.Path != "/v1/bootstrap" {
@@ -186,7 +204,7 @@ func (g *ObjectBootGate) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 	}
 	c, err := ParseObjectBootstrap(raw)
 	issuer := base64.StdEncoding.EncodeToString(g.issuer)
-	if err != nil || c.Browser.ExecutePublicKey == issuer || c.Browser.SecretsPublicKey == issuer {
+	if err != nil || c.Browser.ExecutePublicKey == issuer || c.Browser.SecretsPublicKey == issuer || !storageLeaseUsable(c.Storage, time.Now()) {
 		deny()
 		return
 	}
@@ -202,6 +220,7 @@ func (g *ObjectBootGate) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 		return
 	}
 	g.status.State, g.status.Digest = "starting", grant.Digest
+	g.status.StorageExpires = c.Storage.Expires
 	status = g.status
 	g.mu.Unlock()
 	// After the claim, disconnecting cannot undo initialization or make another
@@ -277,6 +296,7 @@ func (g *ObjectBootGate) initialize(c ObjectBootstrap) {
 		return
 	}
 	g.status.State = "ready"
+	g.scheduleStorageExpiryLocked()
 }
 
 // Close is called only after the HTTP server drains. Keep the Chromium lifetime
@@ -288,6 +308,9 @@ func (g *ObjectBootGate) Close(ctx context.Context) error {
 		return g.closeErr
 	}
 	g.mu.Lock()
+	if g.storageTimer != nil {
+		g.storageTimer.Stop()
+	}
 	previous := g.status.State
 	g.status.State = "stopping"
 	g.status.Failure = ""

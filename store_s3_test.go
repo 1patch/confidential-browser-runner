@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 type s3RoundTripFunc func(*http.Request) (*http.Response, error)
@@ -16,7 +17,7 @@ type s3RoundTripFunc func(*http.Request) (*http.Response, error)
 func (f s3RoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func syntheticS3Config() S3StoreConfig {
-	return S3StoreConfig{Bucket: "browser-proof", Region: "us-east-1", AccessKeyID: "SYNTHETICACCESSKEY", SecretAccessKey: strings.Repeat("synthetic", 5), SessionToken: "synthetic-session"}
+	return S3StoreConfig{Bucket: "browser-proof", Region: "us-east-1", AccessKeyID: "SYNTHETICACCESSKEY", SecretAccessKey: strings.Repeat("synthetic", 5), SessionToken: "synthetic-session", Expires: time.Now().Add(time.Hour).Unix()}
 }
 func s3Response(req *http.Request, status int, body, version string) *http.Response {
 	return &http.Response{StatusCode: status, Request: req, Header: http.Header{"Etag": []string{version}, "Content-Type": []string{"application/xml"}, "Content-Length": []string{strconv.Itoa(len(body))}}, Body: io.NopCloser(strings.NewReader(body)), ContentLength: int64(len(body))}

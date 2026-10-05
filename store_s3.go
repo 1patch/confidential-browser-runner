@@ -27,6 +27,7 @@ type S3StoreConfig struct {
 	AccessKeyID     string `json:"accessKeyId"`
 	SecretAccessKey string `json:"secretAccessKey"`
 	SessionToken    string `json:"sessionToken,omitempty"`
+	Expires         int64  `json:"expires,omitempty"`
 }
 
 var s3Bucket = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$`)
@@ -65,7 +66,8 @@ func newS3BlobBackend(c S3StoreConfig, owner, audience string, testHTTP *http.Cl
 	prefix, err := S3OwnerPrefix(owner, audience)
 	if err != nil || !s3Bucket.MatchString(c.Bucket) || strings.HasSuffix(c.Bucket, "--x-s3") || !s3Region.MatchString(c.Region) || strings.HasPrefix(c.Region, "cn-") ||
 		len(c.AccessKeyID) < 16 || len(c.AccessKeyID) > 128 || len(c.SecretAccessKey) < 32 || len(c.SecretAccessKey) > 256 || len(c.SessionToken) > 16<<10 ||
-		strings.ContainsAny(c.AccessKeyID+c.SecretAccessKey+c.SessionToken, " \t\r\n\x00") {
+		strings.ContainsAny(c.AccessKeyID+c.SecretAccessKey+c.SessionToken, " \t\r\n\x00") ||
+		(c.SessionToken == "" && c.Expires != 0) || (c.SessionToken != "" && (c.Expires <= 0 || c.Expires > 253402300799)) {
 		return nil, ErrInvalid
 	}
 	host := "s3." + c.Region + ".amazonaws.com"
@@ -82,8 +84,13 @@ func newS3BlobBackend(c S3StoreConfig, owner, audience string, testHTTP *http.Cl
 	credentials := aws.Credentials{AccessKeyID: c.AccessKeyID, SecretAccessKey: c.SecretAccessKey, SessionToken: c.SessionToken, Source: "browser-private-bootstrap"}
 	client := s3.New(s3.Options{
 		Region: c.Region, BaseEndpoint: aws.String("https://" + host), UsePathStyle: true,
-		Credentials: aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) { return credentials, nil }),
-		HTTPClient:  &copyClient, RetryMaxAttempts: 1,
+		Credentials: aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
+			if c.Expires != 0 && time.Now().Unix() >= c.Expires {
+				return aws.Credentials{}, ErrDenied
+			}
+			return credentials, nil
+		}),
+		HTTPClient: &copyClient, RetryMaxAttempts: 1,
 		RequestChecksumCalculation: aws.RequestChecksumCalculationWhenRequired,
 		ResponseChecksumValidation: aws.ResponseChecksumValidationWhenRequired,
 	})

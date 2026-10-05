@@ -97,10 +97,26 @@ recovery across fresh filesystems. A separate operator proof also tested actual
 S3/IAM isolation, conditional writes, lost acknowledgments and browser recovery
 using two synthetic owners' private buckets and temporary credentials. That
 provisioning script is outside this generic distribution. Production credential
-renewal and 100 concurrent browsers still require live acceptance. The current
-public release passed actual hardware verification, private bootstrap, browser
+renewal and 100 concurrent browsers still require live acceptance. Public release
+`browser-proof-20261005-4` passed actual hardware verification, private bootstrap, browser
 navigation/screenshots and capability denials on two Tinfoil VMs. Both completed
 explicit checkpoints, restarted with fresh attested nonces, restored private
 session cookies and returned completed results without replaying browser actions.
 An external Pi agent also received screenshot pixels. A prior direct cloud-stop
 test did not save a reusable checkpoint; that synthetic profile remains quarantined.
+
+Temporary S3 credentials must include `expires` as a Unix timestamp. The attested
+worker accepts a new lease with more than ten minutes and at most twelve hours
+remaining. Five minutes before expiry it refuses new work and checkpoints, unless
+a renewal has succeeded. Early revocation or storage failure can still prevent
+checkpointing; a failed profile remains quarantined.
+
+The bootstrap operator can renew storage authentication through `/v1/storage`
+using the separate `browser-storage-renewal/v1.` signing domain. Its body binds
+the current bootstrap digest, next generation and previous renewal digest.
+It cannot change the owner, audience, bucket, region, encryption key or browser
+policy. The existing encrypted identity must authenticate with the new credentials
+before replacement. Existing compare versions and quarantine are preserved.
+Execution and credential keys cannot renew storage. Retain the renewal intent
+before sending once; inspect `/v1/bootstrap` after an uncertain reply. This worker
+primitive does not issue IAM credentials or provide automatic controller renewal.
