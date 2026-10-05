@@ -1,0 +1,37 @@
+# TEMPLATE: replace the placeholders, publish an immutable measured release,
+# and verify that release before sending any runtime credentials.
+cvm-version: "0.14.8"
+cpus: 2
+memory: 8192
+networks:
+  browser-net:
+    egress: open
+containers:
+  - name: browser
+    image: "ghcr.io/REPLACE_OWNER/confidential-browser-runner@sha256:REPLACE_DIGEST"
+    # Root exists only in this measured startup shim, which execs setpriv and
+    # clears every capability before the worker can accept any runtime secret.
+    cvm_admin: true
+    entrypoint: ["/usr/local/bin/browser-cvm-entrypoint"]
+    # An inline map is measured. A bare environment-variable name is not.
+    env:
+      - BROWSER_BOOTSTRAP_PUBLIC_KEY: "REPLACE_BASE64_ED25519_PUBLIC_KEY"
+    networks: [browser-net]
+    read_only: true
+    memory: 2GiB
+    shm_size: 256MiB
+    pids_limit: 256
+    tmpfs:
+      /tmp: "rw,nosuid,nodev,noexec,size=512m,mode=1777"
+      /workspace: "rw,nosuid,nodev,noexec,size=512m,uid=10001,gid=10001,mode=0700"
+    restart: "no"
+    # HTTP drain (35s), encrypted checkpoint (90s), plus shutdown margin.
+    stop_timeout: 150
+shim:
+  upstream-container: browser
+  upstream-port: 8080
+  paths: ["/healthz", "/v1/bootstrap", "/v1/exec", "/v1/credentials"]
+  tls-own-san-domain: true
+  tls-wildcard: false
+  publish-attestation: true
+  dummy-attestation: false
