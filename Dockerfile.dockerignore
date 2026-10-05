@@ -44,6 +44,8 @@
 !cmd/browser-object-worker/main.go
 !object_boot.go
 !object_boot_test.go
+!startup.go
+!startup_test.go
 !cmd/browser-attested-object-worker/
 !cmd/browser-attested-object-worker/main.go
 !cvm-entrypoint.sh
