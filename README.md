@@ -120,3 +120,10 @@ before replacement. Existing compare versions and quarantine are preserved.
 Execution and credential keys cannot renew storage. Retain the renewal intent
 before sending once; inspect `/v1/bootstrap` after an uncertain reply. This worker
 primitive does not issue IAM credentials or provide automatic controller renewal.
+
+Public release `browser-proof-20261005-5` also passed manual renewal on an attested
+Tinfoil VM. Foreign-owner IAM credentials were rejected while the valid lease and
+browser tab remained intact. Correct replacement credentials extended expiry;
+the same tab, saved action result and real screenshot remained available. A
+subsequent authenticated drain saved a verified encrypted checkpoint with private
+and website-issued session cookies using the replacement credentials.
