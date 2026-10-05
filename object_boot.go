@@ -23,6 +23,7 @@ type ObjectBootStatus struct {
 	Nonce   string `json:"nonce"`
 	State   string `json:"state"`
 	Digest  string `json:"digest,omitempty"`
+	Failure string `json:"failure,omitempty"`
 }
 
 type objectBootGrant struct {
@@ -208,6 +209,7 @@ func (g *ObjectBootGate) initialize(c ObjectBootstrap) {
 		g.cancel()
 		if g.status.State == "starting" {
 			g.status.State = "failed"
+			g.status.Failure = startupFailureCode(err)
 		}
 		return
 	}
@@ -222,6 +224,7 @@ func (g *ObjectBootGate) Close(ctx context.Context) error {
 	g.mu.Lock()
 	previous := g.status.State
 	g.status.State = "stopping"
+	g.status.Failure = ""
 	if previous == "waiting" {
 		close(g.done)
 	}

@@ -49,7 +49,7 @@ func NewObjectWorker(ctx context.Context, c ObjectBootstrap, root, executable st
 	defer clear(key)
 	store, err := NewS3SealedStore(ctx, c.Storage, c.Browser.Owner, c.Browser.Audience, key, false)
 	if err != nil {
-		return nil, err
+		return nil, startupFailure("storage-identity", err)
 	}
 	return newObjectWorker(ctx, c.Browser, root, executable, store)
 }
@@ -59,11 +59,11 @@ func newObjectWorker(ctx context.Context, c Bootstrap, root, executable string, 
 		return nil, ErrDenied
 	}
 	if err := bindDirectory(root, c.Owner, c.Audience, c.StorageKey); err != nil {
-		return nil, err
+		return nil, startupFailure("profile-binding", err)
 	}
 	checkpoint, err := openProfile(ctx, store, c.Owner, root)
 	if err != nil {
-		return nil, err
+		return nil, startupFailure("profile-open", err)
 	}
 	w := boundBrowserWorker(c, root, executable, store)
 	w.checkpoint = checkpoint.saveClosedSession

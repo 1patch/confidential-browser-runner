@@ -21,10 +21,10 @@ import (
 
 func TestRealChromiumObjectCheckpoint(t *testing.T) {
 	s, backing, key := profileFixture(t)
-	testRealChromiumObjectCheckpoint(t, s, key, func() *SealedStore { return reopenProfileStore(t, backing, key) })
+	testRealChromiumObjectCheckpoint(t, s, key, func() *SealedStore { return reopenProfileStore(t, backing, key) }, "worker")
 }
 
-func testRealChromiumObjectCheckpoint(t *testing.T, s *SealedStore, key []byte, reopen func() *SealedStore) {
+func testRealChromiumObjectCheckpoint(t *testing.T, s *SealedStore, key []byte, reopen func() *SealedStore, audience string) {
 	executable := os.Getenv("SURE_BROWSER_TEST_CHROME")
 	if executable == "" {
 		t.Skip("set SURE_BROWSER_TEST_CHROME for real object-profile recovery")
@@ -49,7 +49,7 @@ func testRealChromiumObjectCheckpoint(t *testing.T, s *SealedStore, key []byte, 
 	}))
 	defer site.Close()
 	c := testBootstrap(t, "alice")
-	c.Audience = "worker"
+	c.Audience = audience
 	c.StorageKey = base64.StdEncoding.EncodeToString(key)
 	c.Origins = []string{"https://fixture.test"}
 	c.CredentialOrigins = c.Origins
@@ -106,11 +106,12 @@ func testRealChromiumObjectCheckpoint(t *testing.T, s *SealedStore, key []byte, 
 	}
 	id := hex.EncodeToString(run[:])
 	savedText := "object-checkpoint-" + id
-	op := Principal{Owner: "alice", Audience: "worker", Scope: "credential.write", ID: "operator-" + id, Expires: time.Now().Add(time.Minute).Unix()}
+	op := Principal{Owner: "alice", Audience: audience, Scope: "credential.write", ID: "operator-" + id, Expires: time.Now().Add(time.Minute).Unix()}
 	if err := first.putCredential(ctx, op, CookieCredential{Name: "operator", Origin: "https://fixture.test", CookieName: "__Host-operator", Value: "synthetic-operator-secret"}); err != nil {
 		t.Fatal(err)
 	}
 	p, req := remoteRequest()
+	p.Audience = audience
 	p.ID = "profile-" + id
 	req.ID = p.ID
 	req.Code = `await browser.navigate({url:"https://fixture.test/login"});await browser.fill({selector:"#name",text:"` + savedText + `"});return await browser.click({selector:"#save"});`

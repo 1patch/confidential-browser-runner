@@ -81,19 +81,19 @@ func NewChrome(ctx context.Context, cfg ChromeConfig) (*Chrome, error) {
 	if err = chromedp.Do(root); err != nil {
 		c.cancel()
 		stopProxy()
-		return nil, ErrUnavailable
+		return nil, chromeLaunchFailure(err)
 	}
 	if err = requireChromeSandbox(root); err != nil {
 		c.cancel()
 		stopProxy()
-		return nil, ErrDenied
+		return nil, startupFailure("chromium-sandbox", err)
 	}
 	if _, err = chromedp.Run(root, func(ctx context.Context, t *chromedp.Target) (cdp.Empty, error) {
 		return cdp.Call(ctx, t, cdpbrowser.SetDownloadBehavior, cdpbrowser.SetDownloadBehaviorParams{Behavior: cdpbrowser.SetDownloadBehaviorBehaviorDeny})
 	}); err != nil {
 		c.cancel()
 		stopProxy()
-		return nil, ErrUnavailable
+		return nil, startupFailure("chromium-download-policy", err)
 	}
 	c.tabs["tab-1"] = chromeTab{root, func() {}}
 	c.next = 1

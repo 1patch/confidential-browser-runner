@@ -51,11 +51,11 @@ func (w *Worker) initializeLocked(ctx context.Context) error {
 	}
 	secrets, e := w.credentials(ctx)
 	if e != nil {
-		return e
+		return startupFailure("credentials-read", e)
 	}
 	w.driver, e = w.CreateDriver(ctx)
 	if e != nil {
-		return ErrUnavailable
+		return startupFailure("chromium-launch", e)
 	}
 	if len(w.restoreSession) > 0 {
 		restorer, ok := w.driver.(privateBrowserSession)
@@ -65,7 +65,7 @@ func (w *Worker) initializeLocked(ctx context.Context) error {
 			clear(w.restoreSession)
 			w.restoreSession = nil
 			w.closed, w.closeErr = true, ErrUncertain
-			return ErrUnavailable
+			return startupFailure("session-restore", ErrUnavailable)
 		}
 		clear(w.restoreSession)
 		w.restoreSession = nil
@@ -75,7 +75,7 @@ func (w *Worker) initializeLocked(ctx context.Context) error {
 		if !ok || installer.InstallCredential(ctx, secret) != nil {
 			w.driver.Close(ctx)
 			w.driver = nil
-			return ErrUnavailable
+			return startupFailure("credential-install", ErrUnavailable)
 		}
 	}
 	return nil
