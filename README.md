@@ -27,8 +27,10 @@ Never expose CDP or mount a Bash workspace into the browser worker.
 
 Tinfoil v0.14.8's ordinary container schema rejects the namespace-related
 capability additions used by the local Docker profile. Its public config instead
-uses `cvm_admin` only for a short, measured launcher. Before opening a listener,
-it executes `setpriv` to change to UID/GID 10001, clear supplementary groups,
+uses `cvm_admin` only for a short, measured launcher. CVM PID 1 also disables
+unprivileged user namespaces. The launcher enables that kernel feature inside
+the dedicated one-owner browser VM so Chromium can create its sandbox. Before
+opening a listener, it executes `setpriv` to change to UID/GID 10001, clear supplementary groups,
 drop all bounding/inheritable/ambient capabilities, set no-new-privileges and
 clear inherited environment variables. The worker then rechecks those process
 restrictions, RAM storage and swap before accepting bootstrap data. Chromium
@@ -59,7 +61,8 @@ process nonce to the SHA256 of the exact private JSON body. One
 `POST /v1/bootstrap` accepts it with HTTP 202 and starts restoration. The
 signature uses the `browser-bootstrap/v1.` domain; execution and credential keys
 must differ from this issuer. Requests remain unavailable until real Chromium
-initialization completes. Boot status returns only nonce, state and body digest.
+initialization completes. Boot status returns nonce, state, body digest and an
+optional fixed failure-stage label. It never returns raw errors or private data.
 A disconnect, failed start or repeated POST never resets or reassigns the worker.
 On uncertain delivery, inspect status using the retained nonce and digest; never
 resubmit automatically. This service supplies the receiving boundary; the

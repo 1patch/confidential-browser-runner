@@ -8,7 +8,7 @@ networks:
     egress: open
 containers:
   - name: browser
-    image: "ghcr.io/1patch/confidential-browser-runner@sha256:30719db3a3bac1169c5698bd8e7881cd5311dde11a7618db3f549bb0c121e40e"
+    image: "ghcr.io/1patch/confidential-browser-runner@sha256:71a1b68092286fb70d231f24e22b5619b6f8ba888ab73629c09aa1bf8739da75"
     # Root exists only in this measured startup shim, which execs setpriv and
     # clears every capability before the worker can accept any runtime secret.
     cvm_admin: true
