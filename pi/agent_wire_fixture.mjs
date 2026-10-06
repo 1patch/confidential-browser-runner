@@ -11,8 +11,16 @@ globalThis.__browserProofFetch = async (input, init) => {
   calls++;
   if (calls > 2) throw new Error('Unexpected model iteration');
   const tool = calls === 1;
-  if (!tool) assert.ok(JSON.stringify(body).includes('persistent proof'), 'Real browser observation was not returned');
-  const delta = tool ? { role: 'assistant', tool_calls: [{ index: 0, id: 'call_fixture', type: 'function', function: { name: 'browser_exec', arguments: '{"code":"return await browser.snapshot();"}' } }] }
+  if (!tool) {
+    assert.ok(JSON.stringify(body).includes('persistent proof'), 'Real browser observation was not returned');
+    const images = [], texts = [];
+    const inspect = value => { if (!value || typeof value !== 'object') return; if (value.type === 'image_url') images.push(value); if (typeof value.text === 'string') texts.push(value.text); for (const child of Object.values(value)) inspect(child); };
+    inspect(body);
+    assert.equal(images.length, 1, 'Real Chromium screenshot missing from Pi SDK wire request');
+    assert.ok(images[0].image_url.url.startsWith('data:image/jpeg;base64,/9j/'), 'Expected actual JPEG pixels');
+    assert.ok(!texts.some(text => text.includes(images[0].image_url.url.split(',')[1])), 'Browser pixels leaked into text');
+  }
+  const delta = tool ? { role: 'assistant', tool_calls: [{ index: 0, id: 'call_fixture', type: 'function', function: { name: 'browser_exec', arguments: '{"code":"return {page:await browser.snapshot(),views:[{capture:await browser.screenshot()}]};"}' } }] }
     : { role: 'assistant', content: 'Synthetic browser answer' };
   const chunk = { id: 'fixture', object: 'chat.completion.chunk', choices: [{ index: 0, delta, finish_reason: tool ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 120, completion_tokens: 3, total_tokens: 123 } };
   return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });

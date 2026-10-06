@@ -1383,6 +1383,36 @@ function readOperationCatalog(value) {
     return { name: item.name, description: item.description, parameters: item.parameters };
   });
 }
+function browserToolContent(result) {
+  const images = [];
+  const ancestors = /* @__PURE__ */ new Set();
+  let nodes = 0, imageBytes = 0;
+  const visit = (value2, depth = 0) => {
+    if (++nodes > 8192 || depth > 16) throw new Error("Browser result exceeds structural bound");
+    if (!value2 || typeof value2 !== "object") return value2;
+    if (ancestors.has(value2)) throw new Error("Invalid browser result cycle");
+    ancestors.add(value2);
+    try {
+      if (Array.isArray(value2)) return value2.map((child) => visit(child, depth + 1));
+      const record2 = value2;
+      let imageLabel;
+      if (Object.hasOwn(record2, "image") && (typeof record2.image === "string" || Object.hasOwn(record2, "mimeType"))) {
+        const { image } = record2, mimeType = record2.mimeType ?? "image/png";
+        if (typeof image !== "string" || image.length > 262144 || !/^[A-Za-z0-9+/]+={0,2}$/.test(image)) throw new Error("Invalid browser image");
+        if (mimeType !== "image/png" && mimeType !== "image/jpeg") throw new Error("Invalid browser image type");
+        imageBytes += image.length;
+        if (images.length >= 4 || imageBytes > 262144) throw new Error("Browser images exceed bound");
+        images.push({ type: "image", data: image, mimeType });
+        imageLabel = "Image " + images.length + " attached below";
+      }
+      return Object.fromEntries(Object.entries(record2).map(([key, child]) => [key, key === "image" && imageLabel ? imageLabel : visit(child, depth + 1)]));
+    } finally {
+      ancestors.delete(value2);
+    }
+  };
+  const value = visit(result.value);
+  return [{ type: "text", text: JSON.stringify({ ...result, value }) }, ...images];
+}
 function operationTools(catalog, call) {
   return readOperationCatalog({ tools: catalog }).map((operation) => ({
     name: operation.name.replaceAll(".", "_"),
@@ -1391,16 +1421,8 @@ function operationTools(catalog, call) {
     parameters: operation.parameters,
     async execute(id, args, signal) {
       const result = await call(operation.name, args, id, signal);
-      if (operation.name === "browser.exec" && result && typeof result === "object" && "value" in result && result.value && typeof result.value === "object" && "image" in result.value) {
-        const { image, ...observation } = result.value;
-        const mimeType = "mimeType" in observation ? observation.mimeType : "image/png";
-        if (typeof image !== "string" || image.length > 262144 || !/^[A-Za-z0-9+/]+={0,2}$/.test(image)) throw new Error("Invalid browser image");
-        if (mimeType !== "image/png" && mimeType !== "image/jpeg") throw new Error("Invalid browser image type");
-        return { content: [
-          { type: "text", text: JSON.stringify({ ...result, value: observation }) },
-          { type: "image", data: image, mimeType }
-        ], details: {} };
-      }
+      if (operation.name === "browser.exec" && result && typeof result === "object" && "value" in result)
+        return { content: browserToolContent(result), details: {} };
       if (operation.name === "shared.inspect" && result && typeof result === "object" && "image" in result) {
         const { image, ...metadata } = result;
         if (image?.mimeType === "image/jpeg" && typeof image.data === "string" && image.data.length <= 28e5 && /^[A-Za-z0-9+/]*={0,2}$/.test(image.data)) return { content: [
