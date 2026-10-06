@@ -73,6 +73,9 @@ func TestRealChromiumObjectAgentCheckpoint(t *testing.T) {
 		}
 		p := Principal{Owner: "alice", Audience: "worker", Scope: "agent", Expires: time.Now().Add(time.Minute).Unix()}
 		verifyPackagedPiTurn(t, ctx, a, p, AgentStep{}, w.driver, turn)
+		if turn == "Second" {
+			verifyPackagedPiTurn(t, ctx, a, p, AgentStep{}, w.driver, "Recall")
+		}
 		if e = w.Close(ctx); e != nil {
 			t.Fatal("Pi/browser checkpoint failed", e)
 		}

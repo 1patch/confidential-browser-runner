@@ -10,8 +10,13 @@ globalThis.__browserProofFetch = async (input, init) => {
   if (JSON.stringify(body).includes('Second acceptance turn')) assert.ok(JSON.stringify(body).includes('Synthetic browser answer'), 'Session was not restored');
   calls++;
   if (calls > 2) throw new Error('Unexpected model iteration');
-  const tool = calls === 1;
-  if (!tool) {
+  const recall = JSON.stringify(body).includes('Recall acceptance turn');
+  const tool = calls === 1 && !recall;
+  if (recall) {
+    assert.equal(calls, 1);
+    assert.ok(JSON.stringify(body).includes('Synthetic browser answer'), 'Prior conversation missing');
+    assert.equal(Object.hasOwn(body, 'tools'), false, 'Tinfoil rejects an empty catalog after prior tool use');
+  } else if (!tool) {
     assert.ok(JSON.stringify(body).includes('persistent proof'), 'Real browser observation was not returned');
     const images = [], texts = [];
     const inspect = value => { if (!value || typeof value !== 'object') return; if (value.type === 'image_url') images.push(value); if (typeof value.text === 'string') texts.push(value.text); for (const child of Object.values(value)) inspect(child); };

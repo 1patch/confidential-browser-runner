@@ -54,6 +54,11 @@ func verifyPackagedPiTurn(t *testing.T, ctx context.Context, a *AgentBroker, p P
 	start.ID = "packaged-" + strings.ToLower(turn)
 	p.ID = start.ID
 	start.Start = json.RawMessage(`{"tenantId":"alice","sessionId":"container-proof","prompt":"` + turn + ` acceptance turn","role":"concierge","tools":[{"name":"browser.exec","description":"Read the current browser page with JavaScript; return await browser.snapshot();","parameters":{"type":"object","properties":{"code":{"type":"string"}},"required":["code"],"additionalProperties":false}}],"memory":{},"inference":"tinfoil","sandbox":false}`)
+	wantTools := 1
+	if turn == "Recall" {
+		start.Start = json.RawMessage(`{"tenantId":"alice","sessionId":"container-proof","prompt":"Recall acceptance turn","role":"concierge","tools":[],"memory":{},"inference":"tinfoil","sandbox":false}`)
+		wantTools = 0
+	}
 	step := start
 	finished := false
 	tools := 0
@@ -79,7 +84,7 @@ func verifyPackagedPiTurn(t *testing.T, ctx context.Context, a *AgentBroker, p P
 		}
 		if message.Tool != nil {
 			tools++
-			if tools > 1 || message.Tool.Operation != "browser.exec" {
+			if tools > wantTools || message.Tool.Operation != "browser.exec" {
 				t.Fatal("unexpected packaged tool")
 			}
 			result, err := (&Sandbox{Safety: StubSafety{Policy: NetworkPolicy{Origins: []string{"https://fixture.test"}}}}).Execute(ctx, "alice", message.Tool.Args.Code, driver)
@@ -89,7 +94,7 @@ func verifyPackagedPiTurn(t *testing.T, ctx context.Context, a *AgentBroker, p P
 			step.Reply, _ = json.Marshal(map[string]any{"id": message.Tool.ID, "value": result})
 		}
 		if len(message.Result) > 0 {
-			if !strings.Contains(string(message.Result), "Synthetic browser answer") || tools != 1 {
+			if !strings.Contains(string(message.Result), "Synthetic browser answer") || tools != wantTools {
 				t.Fatal("packaged Pi result unavailable")
 			}
 			finished = true
