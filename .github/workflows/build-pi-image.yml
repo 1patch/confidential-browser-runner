@@ -1,0 +1,50 @@
+name: Verify and publish Pi browser runner
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: browser-pi-image
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: pi
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build the exact CVM startup acceptance image
+        run: docker build --target acceptance -t browser-acceptance .
+      - name: Verify dropped privileges, Chromium and encrypted Pi recovery
+        run: |
+          sudo swapoff --all
+          test "$(wc -l < /proc/swaps)" -eq 1
+          sudo apparmor_parser -r ci-apparmor.profile
+          prior_userns=$(cat /proc/sys/kernel/unprivileged_userns_clone)
+          trap 'printf "%s\n" "$prior_userns" | sudo tee /proc/sys/kernel/unprivileged_userns_clone >/dev/null; sudo apparmor_parser -R ci-apparmor.profile' EXIT
+          # Reproduce the measured CVM's disabled user-namespace starting state.
+          printf '0\n' | sudo tee /proc/sys/kernel/unprivileged_userns_clone >/dev/null
+          docker run --rm --privileged --user=0:0 --read-only \
+            --security-opt apparmor=sure-browser-acceptance \
+            --memory=2g --cpus=2 --pids-limit=256 --shm-size=256m \
+            --tmpfs /tmp:rw,nosuid,nodev,noexec,size=512m,mode=1777 \
+            --tmpfs /workspace:rw,nosuid,nodev,noexec,size=512m,uid=10001,gid=10001,mode=0700 \
+            -e SURE_BROWSER_LAUNCHER_SENTINEL=synthetic-inherited-value \
+            browser-acceptance -test.v -test.timeout=120s
+          test "$(cat /proc/sys/kernel/unprivileged_userns_clone)" = 1
+      - name: Build the release image
+        run: docker build --target runtime -t "ghcr.io/$GITHUB_REPOSITORY:pi-$GITHUB_SHA" .
+      - uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish verified image
+        run: |
+          docker push "ghcr.io/$GITHUB_REPOSITORY:pi-$GITHUB_SHA"
+          docker inspect --format '{{json .RepoDigests}}' "ghcr.io/$GITHUB_REPOSITORY:pi-$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"

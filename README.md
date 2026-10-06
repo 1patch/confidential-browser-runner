@@ -5,10 +5,14 @@ JavaScript runs in QuickJS WebAssembly and can only invoke bounded browser
 actions. Each worker has one immutable owner. Signed capabilities authorize
 execution; a separate operator key authorizes credential installation.
 
-This source distribution contains no application agent, prompts, Node runtime,
+The root browser-only image contains no application agent, prompts, Node runtime,
 inference credential or control-plane provisioning code. An external Pi agent
 can drive `/v1/exec` through its authenticated coordinator. `/v1/agent` is denied.
 The classifier is a policy stub, not a trained safety model or a security proof.
+
+The separate [Pi worker](pi/README.md) adds the trusted agent adapter and encrypted
+conversation checkpoints. It uses its own build, image tag and measured release;
+it does not change the browser-only image or activate any customer account.
 
 Build the managed-volume image with
 `docker build --target runtime -t browser-worker .`, or the encrypted-object
