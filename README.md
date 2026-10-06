@@ -45,8 +45,12 @@ The `cvm-acceptance` image exercises this startup path with synthetic tests.
 The manual image workflow runs that acceptance before pushing an image. After
 pinning its digest and an operator-generated public key in `tinfoil-config.yml`,
 the separate measurement workflow publishes evidence for an immutable Git tag.
-Both workflows are inert until explicitly dispatched; never commit private keys
-or runtime bootstrap values to this repository.
+The standard `tinfoil-release.yml` workflow accepts a new version on the default
+branch, reserves its tag without overwriting an existing one, then dispatches
+`tinfoil-release-publish.yml` against that exact tag. Wait for measurement,
+attestation and the published release before deployment. These workflows are
+inert until explicitly dispatched; never commit private keys or runtime bootstrap
+values to this repository.
 
 Object mode requires private `BROWSER_OBJECT_BOOTSTRAP` delivery, containing
 `browser` (the existing owner-bound bootstrap) and `storage` (bucket, region and
