@@ -131,3 +131,8 @@ browser tab remained intact. Correct replacement credentials extended expiry;
 the same tab, saved action result and real screenshot remained available. A
 subsequent authenticated drain saved a verified encrypted checkpoint with private
 and website-issued session cookies using the replacement credentials.
+
+The current `tinfoil-config.yml` selects the separate Pi image. Browser-only
+release `browser-proof-20261005-5` retains its original immutable configuration.
+Always select and independently verify an exact release, rather than following
+`main` as a deployment policy.

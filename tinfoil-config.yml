@@ -1,5 +1,4 @@
-# Public measured configuration. The private issuer stays with the operator.
-# Verify this release before delivering any runtime credentials.
+# Public Pi worker measurement. Verify this exact release before secret delivery.
 cvm-version: "0.14.8"
 cpus: 2
 memory: 8192
@@ -8,7 +7,7 @@ networks:
     egress: open
 containers:
   - name: browser
-    image: "ghcr.io/1patch/confidential-browser-runner@sha256:f4aabc2688930edd43b45fd24741a9d5f912df54b854eef106a67a321c2c720b"
+    image: "ghcr.io/1patch/confidential-browser-runner@sha256:74ecf704def57246a64d8aa28ba7526266fce6f4777f2af2077d8328c3512384"
     # Root exists only in this measured startup shim, which execs setpriv and
     # clears every capability before the worker can accept any runtime secret.
     cvm_admin: true
@@ -30,7 +29,7 @@ containers:
 shim:
   upstream-container: browser
   upstream-port: 8080
-  paths: ["/healthz", "/v1/bootstrap", "/v1/drain", "/v1/storage", "/v1/exec", "/v1/credentials"]
+  paths: ["/healthz", "/v1/bootstrap", "/v1/drain", "/v1/storage", "/v1/exec", "/v1/credentials", "/v1/agent"]
   # Use the certificate proxy's standard attestation SAN domain.
   tls-own-san-domain: false
   tls-wildcard: false
