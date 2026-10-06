@@ -48,6 +48,17 @@ proof VM is confirmed stopped after the final checkpoint.
 
 ## Previously corrected failures
 
+Release `browser-pi-proof-20261005-4` fixes the standard release-workflow layout
+required by Tinfoil's create validation. Its
+[preparation](https://github.com/1patch/confidential-browser-runner/actions/runs/37404248835)
+and [publication](https://github.com/1patch/confidential-browser-runner/actions/runs/37404266104)
+passed at source `cad624110f92431909fdd7127a56f4d8cfc71db3`. Independent signature
+verification binds the exact source/tag and hosted `tinfoil-release-publish.yml`.
+The image, configuration bytes and measured manifest are identical to release 3.
+Actual Tinfoil create preflight now returns HTTP 200, valid, and no errors.
+That read-only check created no instance; the hardware/recall proof above remains
+the release-3 run. Existing tags are never overwritten by the release workflow.
+
 The first live Pi release returned its screenshot nested inside an observation.
 The adapter now promotes bounded nested screenshots into image content and keeps
 those pixels out of saved Pi transcripts. A later recall attempt with no current
